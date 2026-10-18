@@ -6,8 +6,6 @@ A binary real/fake classifier for face images, trained on FaceForensics++ C23. T
 2. **Attention CNN:** the same backbone with a learned 1×1 convolution + sigmoid gate on its feature map.
 3. **Hybrid Spatial-Frequency CNN:** the attention model plus a small CNN on the log-scaled FFT magnitude spectrum, with a dense fusion head.
 
-Course project for *Deep Learning*, by Youssef Sufian Zuaiter.
-
 ## Results
 
 These are the numbers the notebooks actually produce, on the dataset's own validation and test splits.

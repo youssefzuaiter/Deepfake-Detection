@@ -43,7 +43,7 @@ The three models were not trained under the same conditions:
 
 | | Baseline | Attention CNN | Hybrid |
 |---|---|---|---|
-| Notebook | `DEEPLEARNING.ipynb` (not in this repo) | `DEEPLEARNING.ipynb` | `Hybrid Deepfake.ipynb` |
+| Notebook | `DEEPLEARNING.ipynb` | `DEEPLEARNING.ipynb` | `Hybrid Deepfake.ipynb` |
 | Training images | 10,000 (5,000 per class) | 10,000 (5,000 per class) | 36,782 (18,391 per class) |
 | Epochs | 3 | 3 | 5 |
 | Loss | cross-entropy | cross-entropy | cross-entropy, label smoothing 0.1 |
@@ -148,6 +148,8 @@ Per-epoch results from the saved output:
 
 Validation accuracy was still rising at epoch 5, so longer training may help. That is untested.
 
+![Hybrid model training and validation curves](docs/learning_curves_hybrid.png)
+
 ### Baseline and attention (`DEEPLEARNING.ipynb`)
 
 Both models use Adam (lr 1e-4), plain cross-entropy, batch size 32, and 3 epochs on the 10,000-image balanced subset. Training accuracy after epoch 3 was 96.18% (baseline) and 96.50% (attention).
@@ -155,12 +157,13 @@ Both models use Adam (lr 1e-4), plain cross-entropy, batch size 32, and 3 epochs
 ## Repository contents
 
 - `Hybrid Deepfake.ipynb`: the hybrid model pipeline, covering data, balanced sampling, FFT transform, model, training, evaluation, plots, and weight saving. The same file appears in the project folder as `Deepfake_Detection_Project.ipynb`.
+- `DEEPLEARNING.ipynb`: the baseline and attention notebook. It includes the Grad-CAM visualizations for the attention model. Its introduction refers to the hybrid notebook as "Deepfake Research Extension.ipynb"; in this repository that is `Hybrid Deepfake.ipynb`.
+- `docs/learning_curves_hybrid.png`: training and validation curves from the hybrid run.
 - `Proposal.pdf`: the project proposal.
 - `Deepfake_Detection_Project_README.pdf`: an earlier design summary. It contains the discrepancies listed above.
+- `.gitignore`: keeps the dataset, zip archives, and model weights out of the repository.
 
-Kept in the project folder but **not** in this repository:
-- `DEEPLEARNING.ipynb`: the baseline and attention notebook. It includes the Grad-CAM visualizations for the attention model.
-- The dataset (`DATASET.zip`, about 2.6 GB, and the extracted `dataset_processed_split/`).
+Not in this repository: the dataset (`DATASET.zip` and the extracted `dataset_processed_split/`) and the trained weights.
 
 ## Setup
 
@@ -174,14 +177,16 @@ pip install torch torchvision scikit-learn matplotlib seaborn numpy pandas kaggl
 
 The baseline notebook installs `grad-cam` itself in cell 32.
 
-**Kaggle credentials.** Set your credentials as environment variables or in Colab Secrets. Do not put a key in a notebook, and do not commit one.
+**Kaggle credentials.** Set your credentials as environment variables or in Colab Secrets. Do not put a key in a notebook, and do not commit one. Both notebooks check that the variables are set and stop with a message if they are not.
+
+In Colab, run a cell before the notebook's first cell that loads them from Colab Secrets, for example `os.environ["KAGGLE_KEY"] = userdata.get("KAGGLE_KEY")` after `from google.colab import userdata`.
 
 ```bash
 export KAGGLE_USERNAME="your_username"
 export KAGGLE_KEY="your_api_key"
 ```
 
-**Do not run cell 4 of `Hybrid Deepfake.ipynb` as written.** It contains a hard-coded Kaggle key. Replace that cell with the environment-variable approach above.
+An earlier version of `Hybrid Deepfake.ipynb` contained a hard-coded Kaggle key. If you cloned the repository before commit `cea5562`, revoke that key on Kaggle.
 
 **Data paths.** Both notebooks expect the Colab layout `/content/dataset/dataset_processed_split/{train,val,test}`, set as `data_dir`. For a local run, change that path to where you unzip the dataset.
 
@@ -194,7 +199,7 @@ export KAGGLE_KEY="your_api_key"
 Outputs: `best_hybrid_model.pth`, `hybrid_deepfake_model.pth`, `hybrid_training_curves.png`, `roc_curve.png`, `ablation_study.png`. The ablation chart uses the hard-coded numbers described above.
 
 **Baseline and attention** (`DEEPLEARNING.ipynb`):
-1. Set the Kaggle credentials as described above. Cell 2 contains placeholders only.
+1. Set the Kaggle credentials as described above. Cell 2 checks that they are set.
 2. Run the cells in order through cell 37 for the balanced evaluation. Cells 31–34 produce the Grad-CAM figures.
 
 Outputs: `training_accuracy_comparison.png`, `training_loss_comparison.png`, `roc_attention.png`, `sample_predictions.png`.

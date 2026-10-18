@@ -1,0 +1,14 @@
+# macOS / editors
+.DS_Store
+.ipynb_checkpoints/
+__pycache__/
+
+# Dataset: download from Kaggle, never commit
+dataset/
+dataset_processed_split/
+*.zip
+
+# Trained weights: regenerate by running the notebooks
+*.pth
+*.pt
+*.onnx

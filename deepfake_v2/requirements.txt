@@ -1,0 +1,9 @@
+torch>=2.3
+torchvision>=0.18
+numpy
+pandas
+matplotlib
+pillow
+# tests only
+scikit-learn
+pytest

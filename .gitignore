@@ -12,3 +12,9 @@ dataset_processed_split/
 *.pth
 *.pt
 *.onnx
+
+# Version 2 run outputs and tooling
+runs/
+smoke/
+kaggle_output/
+.pytest_cache/

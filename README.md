@@ -16,13 +16,13 @@ A binary real/fake classifier for face images, trained on FaceForensics++ C23. T
 
 | Version | File | What it is | Status |
 |---|---|---|---|
-| 1 | `DEEPLEARNING.ipynb` | Baseline and attention models, one run each, on the Kaggle split | Numbers are real. The explanations in its text were never tested, and the attention gain does not hold on the balanced test subset |
-| 1 | `Hybrid Deepfake.ipynb` | Hybrid model, one run | Measures 92.84% test accuracy. The 93.34% in its text was typed by hand and is not produced by the code |
+| 1 | `DEEPLEARNING.ipynb` | Baseline and attention models, one run each, on the Kaggle split | Text corrected. The numbers were always real, but the explanations were never tested, and the attention gain does not hold on the balanced test subset |
+| 1 | `Hybrid Deepfake.ipynb` | Hybrid model, one run | Text corrected. It measures 92.84% test accuracy; the 93.34% that its text used to state was typed by hand |
 | 2 | `Deepfake_Detection_v2_kaggle.ipynb` | Runnable matched study: four variants × three seeds on an identity-disjoint split, plus a report | Ran end to end on a Kaggle T4 |
 | 2 | `Deepfake_Detection_v2_full_run.ipynb` | The same notebook with the outputs of the full run and its report | Result: no robust gain from either component |
 | 3 | not yet | Planned | |
 
-The version 1 notebooks are unchanged. Their text still contains claims that the tables below correct.
+The version 1 notebooks were corrected after version 2. Their text no longer makes the unsupported claims, hand-typed numbers are replaced by measured ones, and each notebook opens with a note listing what changed. Their code and saved outputs are otherwise untouched, except for the cells that showed the old numbers. The original wording is in the git history.
 
 ## Version 2: matched ablation on an identity-disjoint split
 
@@ -131,18 +131,18 @@ Because of these differences, the hybrid's gains cannot be attributed to the arc
 
 On the balanced test subset, the attention model scores 1.70 points below the baseline (85.10% against 86.80%). The attention gain does not hold up under balanced evaluation. The hybrid was not evaluated on that subset, so its balanced accuracy above is computed from its confusion matrix on the full test set.
 
-### Discrepancies between the version 1 documents and the notebooks
+### Corrections made to the version 1 notebooks
 
 | Claim | Where | What the notebook measures |
 |---|---|---|
-| Hybrid test accuracy 93.34%, val 92.83% | Original proposal (since removed); markdown and chart in the hybrid notebook | Test 92.84%, val 92.47% (cell 31). The ablation chart uses hard-coded values |
+| Hybrid test accuracy 93.34%, val 92.83% | Original proposal (since removed); markdown and chart in the hybrid notebook | Test 92.84%, val 92.47% (cell 31). The table and chart now use measured values |
 | Real precision 0.74 | Original project PDF (since removed); markdown in the hybrid notebook | 0.70 (classification report) |
 | Fake precision 0.97, recall 0.95 | Summary cell 40 in the hybrid notebook | 0.98 and 0.93 (classification report) |
 | FFT branch adds +2.31% over attention | Summary cell 40 in the hybrid notebook | +1.81 points using measured numbers (92.84 − 91.03), and the two were trained with different budgets |
 | Balanced subset redrawn each epoch | Original project PDF | Drawn once with seed 42 (cell 13). Version 2 redraws it every epoch |
 | Grad-CAM for the hybrid model | Original project PDF | Grad-CAM code exists only for the attention model, in `DEEPLEARNING.ipynb`, and it was only viewed by eye |
 
-Where the documents disagree with the notebook outputs, treat the notebook outputs as the reference.
+The notebooks now state the measured values. Where any older document disagrees with the notebook outputs, treat the notebook outputs as the reference.
 
 ## Architecture
 
@@ -225,8 +225,8 @@ Both models use Adam (lr 1e-4), plain cross-entropy, batch size 32, and 3 epochs
 
 ## Repository contents
 
-- `DEEPLEARNING.ipynb`: version 1, baseline and attention models, including the Grad-CAM figures for the attention model. Its introduction refers to the hybrid notebook as "Deepfake Research Extension.ipynb"; in this repository that is `Hybrid Deepfake.ipynb`.
-- `Hybrid Deepfake.ipynb`: version 1, the hybrid model pipeline (data, balanced sampling, FFT transform, model, training, evaluation, plots, weight saving).
+- `DEEPLEARNING.ipynb`: version 1 (text corrected), baseline and attention models, including the Grad-CAM figures for the attention model.
+- `Hybrid Deepfake.ipynb`: version 1 (text corrected), the hybrid model pipeline (data, balanced sampling, FFT transform, model, training, evaluation, plots, weight saving).
 - `Deepfake_Detection_v2_kaggle.ipynb`: version 2, the runnable matched study for Kaggle.
 - `Deepfake_Detection_v2_full_run.ipynb`: version 2, the same notebook with the outputs of the full run (12 runs) and its report.
 - `deepfake_v2/`: the version 2 package (`dfv2/`), its tests, its README, and `build_notebook.py`, which generates the version 2 notebooks from the package.
@@ -259,7 +259,7 @@ An earlier version of `Hybrid Deepfake.ipynb` contained a hard-coded Kaggle key.
 
 **Data paths (version 1).** Both notebooks expect the Colab layout `/content/dataset/dataset_processed_split/{train,val,test}`, set as `data_dir`. For a local run, change that path to where you unzip the dataset.
 
-**Running the version 1 hybrid notebook** (`Hybrid Deepfake.ipynb`): set the credentials, run the download and unzip cells (6–7), data and loader cells (9–17), model cells (19–20), training cells (22–25) and evaluation cells (31, 36–38), then save the weights (cell 42). Outputs: `best_hybrid_model.pth`, `hybrid_deepfake_model.pth`, `hybrid_training_curves.png`, `roc_curve.png`, `ablation_study.png` (the last uses hard-coded numbers).
+**Running the version 1 hybrid notebook** (`Hybrid Deepfake.ipynb`): set the credentials, run the download and unzip cells (6–7), data and loader cells (9–17), model cells (19–20), training cells (22–25) and evaluation cells (31, 36–38), then save the weights (cell 42). Outputs: `best_hybrid_model.pth`, `hybrid_deepfake_model.pth`, `hybrid_training_curves.png`, `roc_curve.png`, `ablation_study.png` (the last uses the measured hybrid numbers and the baseline and attention numbers copied from `DEEPLEARNING.ipynb`'s outputs).
 
 **Running the version 1 baseline and attention notebook** (`DEEPLEARNING.ipynb`): set the credentials, then run the cells in order through cell 37. Cells 31–34 produce the Grad-CAM figures.
 

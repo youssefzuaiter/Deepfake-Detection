@@ -9,7 +9,7 @@ from PIL import Image
 
 from dfv2 import report, run_ablation
 from dfv2.splits import audit_identities
-from dfv2.manifest import load_manifest
+from dfv2.manifest import MANIPULATIONS, load_manifest
 from dfv2.train import TrainConfig, run
 
 COMMON_ARGS = ["--epochs", "1", "--batch-size", "4", "--num-workers", "0",
@@ -142,3 +142,53 @@ def test_cli_refuses_to_mix_runs_made_with_different_settings(tmp_path):
     with pytest.raises(SystemExit, match="different settings"):
         run_ablation.main(["--data-dir", str(tmp_path), "--out-dir", str(out), "--variants", "base",
                            "--seeds", "0"] + COMMON_ARGS)  # asks for the clean split
+
+
+# --- held-out manipulation types and degraded test frames --------------------
+
+def test_holdout_run_trains_without_the_type_and_writes_degraded_predictions(data_dir, tmp_path):
+    cfg = TrainConfig(variant="base", seed=0, epochs=1, batch_size=4, num_workers=0, pretrained=False,
+                      amp=False, device="cpu", split="original", holdout="FaceSwap",
+                      perturbations=["jpeg70", "blur1.5"])
+    summary = run(cfg, data_dir, tmp_path)
+    assert summary["tag"] == "base_hold-FaceSwap_seed0"
+
+    preds = pd.read_csv(tmp_path / "preds" / "base_hold-FaceSwap_seed0.csv")
+    assert "FaceSwap" not in set(preds[preds["split"] == "val"]["fake_type"])
+    assert "FaceSwap" in set(preds[preds["split"] == "test"]["fake_type"])
+
+    robust = pd.read_csv(tmp_path / "robust" / "base_hold-FaceSwap_seed0.csv")
+    assert list(robust.columns) == ["filename", "video", "fake_type", "label", "perturbation", "p_fake"]
+    assert set(robust["perturbation"]) == {"jpeg70", "blur1.5"}
+    assert len(robust) == 2 * (preds["split"] == "test").sum()
+    assert robust["p_fake"].between(0, 1).all()
+
+    meta = json.loads((tmp_path / "history" / "base_hold-FaceSwap_seed0.json").read_text())
+    assert meta["config"]["holdout"] == "FaceSwap" and meta["config"]["perturbations"] == ["jpeg70", "blur1.5"]
+
+
+def test_runs_without_perturbations_write_no_degraded_file(data_dir, tmp_path):
+    cfg = TrainConfig(variant="base", seed=0, epochs=1, batch_size=4, num_workers=0, pretrained=False,
+                      amp=False, device="cpu", split="original")
+    run(cfg, data_dir, tmp_path)
+    assert not (tmp_path / "robust").exists()
+
+
+def test_cli_runs_folds_with_robustness_then_skips_finished_ones(data_dir, tmp_path, capsys):
+    out = tmp_path / "runs"
+    args = ["--data-dir", str(data_dir), "--out-dir", str(out), "--variants", "base", "--seeds", "0",
+            "--holdouts", "FaceSwap", "Deepfakes", "--robustness", "--split", "original"] + COMMON_ARGS
+    run_ablation.main(args)
+    text = capsys.readouterr().out
+    for fold in ("FaceSwap", "Deepfakes"):
+        assert (out / "preds" / f"base_hold-{fold}_seed0.csv").exists()
+        assert (out / "robust" / f"base_hold-{fold}_seed0.csv").exists()
+    assert "dfv2.generalization" in text
+    run_ablation.main(args)
+    assert "skipping" in capsys.readouterr().out
+
+
+def test_all_expands_to_the_five_manipulation_types():
+    assert run_ablation.expand_holdouts(["all"]) == list(MANIPULATIONS)
+    assert run_ablation.expand_holdouts(["FaceSwap"]) == ["FaceSwap"]
+    assert run_ablation.expand_holdouts([]) == [None]

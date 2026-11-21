@@ -102,3 +102,21 @@ def test_mismatched_test_rows_are_rejected(tmp_path):
         assert "differ" in str(e)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_training_notes_ignore_hold_out_runs(tmp_path):
+    runs = tmp_path / "runs"
+    write_runs(runs, variants=("base",), seeds=(0,))
+    (runs / "history").mkdir()
+
+    def history(tag, holdout):
+        meta = {"config": {"variant": "base", "seed": 0, "split": "clean", "holdout": holdout},
+                "history": [{"epoch": 1, "train_loss": 0.5, "val_auc": 0.9},
+                            {"epoch": 2, "train_loss": 0.4, "val_auc": 0.95}],
+                "summary": {"best_epoch": 2}}
+        (runs / "history" / f"{tag}.json").write_text(json.dumps(meta))
+
+    history("base_seed0", None)
+    history("base_hold-Face2Face_seed0", "Face2Face")
+    text = report.build_report(runs, tmp_path / "out", n_boot=5, seed=0).read_text()
+    assert "1 of 1 runs had their best validation AUC in the final epoch" in text

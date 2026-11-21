@@ -9,6 +9,7 @@ from torch.utils.data import Dataset, Sampler
 from torchvision import transforms
 
 from .manifest import balanced_epoch_indices
+from .perturbations import CLEAN, parse
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -31,17 +32,20 @@ def build_transform(train: bool) -> transforms.Compose:
 class FrameDataset(Dataset):
     """Rows of a manifest frame -> (normalised image tensor, label). Order follows the frame."""
 
-    def __init__(self, df: pd.DataFrame, train: bool):
+    def __init__(self, df: pd.DataFrame, train: bool, perturbation: str = CLEAN):
+        if train and perturbation != CLEAN:
+            raise ValueError("degradations are for evaluation frames; training uses the usual augmentation")
         self.paths = df["path"].tolist()
         self.labels = df["label"].to_numpy()
         self.transform = build_transform(train)
+        self.degrade = parse(perturbation)  # raises ValueError for an unknown name
 
     def __len__(self) -> int:
         return len(self.paths)
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, int]:
         with Image.open(self.paths[i]) as image:
-            return self.transform(image.convert("RGB")), int(self.labels[i])
+            return self.transform(self.degrade(image.convert("RGB"))), int(self.labels[i])
 
 
 class BalancedEpochSampler(Sampler[int]):

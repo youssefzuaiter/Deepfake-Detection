@@ -223,3 +223,30 @@ def bootstrap_clusters(
 def percentile_ci(samples: np.ndarray, alpha: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
     lo, hi = np.nanpercentile(samples, [100 * alpha / 2, 100 * (1 - alpha / 2)], axis=0)
     return np.atleast_1d(lo), np.atleast_1d(hi)
+
+
+class AucEvaluator:
+    """AUC of a fixed set of scores under changing row weights, with the sort done once.
+
+    The cluster bootstrap evaluates the same predictions thousands of times with different video
+    weights. Sorting once and re-weighting is far faster than calling `auc_roc` every time, and the
+    result is the same (ties included).
+    """
+
+    def __init__(self, y, score):
+        y = np.asarray(y).astype(int)
+        self._unique, self._inverse = np.unique(np.asarray(score, dtype=float), return_inverse=True)
+        self._pos = (y == 1).astype(float)
+        self._neg = (y == 0).astype(float)
+
+    def __call__(self, w=None) -> float:
+        w = np.ones(len(self._pos)) if w is None else np.asarray(w, dtype=float)
+        n = len(self._unique)
+        pos = np.bincount(self._inverse, weights=w * self._pos, minlength=n)
+        neg = np.bincount(self._inverse, weights=w * self._neg, minlength=n)
+        pos_total, neg_total = pos.sum(), neg.sum()
+        if pos_total <= 0 or neg_total <= 0:
+            return float("nan")
+        tpr = np.concatenate([[0.0], np.cumsum(pos[::-1]) / pos_total])
+        fpr = np.concatenate([[0.0], np.cumsum(neg[::-1]) / neg_total])
+        return float(np.sum(np.diff(fpr) * (tpr[1:] + tpr[:-1]) / 2))

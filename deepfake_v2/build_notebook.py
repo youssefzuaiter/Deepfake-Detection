@@ -1,12 +1,13 @@
 """Build the notebooks from the dfv2 package, so they always match the tested code.
 
-    python build_notebook.py                   # both notebooks, written to the project folder
+    python build_notebook.py                   # all notebooks, written to the project folder
     python build_notebook.py --target kaggle   # only one of them
 
-The two targets run the same package code and differ only in where the data comes from and where results go:
+All targets run the same package code. They differ in where the data comes from, where results go, and what is run:
 
-  kaggle  Deepfake_Detection_v2_kaggle.ipynb  reads the dataset attached under /kaggle/input, writes to /kaggle/working
-  colab   Deepfake_Detection_v2.ipynb         downloads the dataset from Kaggle, writes to Google Drive
+  kaggle          Deepfake_Detection_v2_kaggle.ipynb              matched 2x2 ablation; dataset attached under /kaggle/input
+  colab           Deepfake_Detection_v2.ipynb                     the same ablation; dataset downloaded, results on Google Drive
+  generalization  Deepfake_Detection_generalization_kaggle.ipynb  leave-one-manipulation-out folds and degraded test frames
 
 Each module becomes a `%%writefile dfv2/<name>.py` cell. To change the code, edit the package and rebuild;
 do not edit the generated code cells by hand.
@@ -23,6 +24,8 @@ MODULES = [
     ("__init__.py", "Marks `dfv2` as a Python package."),
     ("metrics.py", "Every metric, written to accept per-row weights so the bootstrap can resample whole "
                    "videos. Convention throughout: label 1 = fake, and a score is P(fake)."),
+    ("perturbations.py", "Test-time degradations (JPEG re-encoding, blur, downscaling): the same frame made worse "
+                         "in a repeatable way, for the robustness part of the generalization study."),
     ("splits.py", "The identity-disjoint split and the leakage audit. Original videos and actors are nodes, each "
                   "fake video links its two ids, and linked groups are never separated."),
     ("manifest.py", "Reads `dataset_manifest.csv`, or the folder layout when there is no CSV. Works out which "
@@ -38,6 +41,9 @@ MODULES = [
     ("make_split.py", "Prints the leakage audit of the original split next to the clean one."),
     ("report.py", "Turns saved predictions into the report: tables, bootstrap intervals over test videos, "
                   "per-manipulation results and figures. Needs no GPU."),
+    ("generalization.py", "The generalization report: AUC on a held-out manipulation against the manipulations "
+                          "seen in training, paired comparisons with the baseline, and robustness under degraded "
+                          "frames. Needs no GPU."),
 ]
 
 IDEA = """\
@@ -283,6 +289,130 @@ When the runs with seeds 0, 1 and 2 are done, the results are ready to replace t
 Not covered here: other datasets, other compression levels, a redesigned frequency branch, and repeating the study over several split seeds (`--split-seed`)."""
 
 
+# --- the generalization study ---------------------------------------------------
+
+TITLE_GEN = """\
+# Deepfake detection: does it generalize? (Kaggle)
+
+Follow-up to the matched ablation. That study found no robust gain from the feature gate or the FFT branch on the manipulations the models were trained on. This one asks the question that matters more: **what happens on a manipulation the model has never seen, and on frames that have been degraded?**
+
+**What this notebook does**
+
+1. **Unseen manipulations.** Trains one model per held-out manipulation type (leave-one-out folds). The held-out type is removed from training *and* validation and appears only at test time.
+2. **Degraded frames.** After each run, scores the test frames again after JPEG re-encoding, blur and downscaling.
+3. Writes a report with paired comparisons and intervals, and a plain statement of what the data does and does not support.
+
+**Before you run it**
+
+1. **Accelerator:** Settings (right panel) > Accelerator > **GPU T4 x2**.
+2. **Internet:** Settings > Internet > **On** (needed once, for the ImageNet weights).
+3. **Dataset:** **+ Add Input** > search `faceforensics-c23-extracted-faces-100k` (gradientvoyager) > add it.
+
+Then run the cells top to bottom. Run the quick test before the experiment.
+
+_Generated from the `deepfake_v2/` package by `build_notebook.py`. To change the code, edit the package and rebuild._"""
+
+IDEA_GEN = """\
+## The idea in short
+
+**Question.** When a detector meets a manipulation it was not trained on, does adding the FFT branch help it generalize? The frequency idea is usually motivated by robustness and generalization, not by in-domain accuracy, so this is the setting where it should show up if it helps at all.
+
+**Folds.** There are five manipulation types: Deepfakes, Face2Face, FaceShifter, FaceSwap and NeuralTextures. Fold *k* trains on real faces plus the other four types, validates on those same four, and is tested on all five. **Unseen AUC** compares the held-out type with all real test frames. **Seen AUC** compares the other four types with the same real frames. The gap between them is how much a model loses on a manipulation it has not met.
+
+**Variants.** `base` (plain MobileNetV2 with the shared dense head) against `freq` (the same plus the FFT branch) is the cleanest contrast. The gate is left out: the first study showed no effect for it.
+
+**Degradations.** JPEG quality 70 and 40, Gaussian blur of radius 1.5, and a 2x downscale followed by enlargement. They are controlled, repeatable stand-ins for compression and resizing. They are not real social-media pipelines, and nothing is trained on them.
+
+**What this cannot show.** Another dataset (Celeb-DF, DFDC) is not tested here, and "unseen" means one manipulation method on the same kind of source footage, not new people or cameras."""
+
+SETTINGS_GEN_CODE = """\
+import os
+import socket
+import subprocess
+import sys
+
+import torch
+
+""" + RUN_HELPER + """
+
+os.chdir("/kaggle/working")          # outputs and the dfv2 package go here
+os.makedirs("dfv2", exist_ok=True)   # the module cells below write into this folder
+
+OUT_DIR = "/kaggle/working/runs_generalization"   # kept as this notebook's output
+VARIANTS = ["base", "freq"]          # no FFT branch against the FFT branch
+SEEDS = [0, 1]
+HOLDOUTS = ["all"]                   # one fold per manipulation type; or e.g. ["NeuralTextures"] for a first look
+EPOCHS = 5
+SPLIT = "clean"                      # identity-disjoint
+EXTRA_FLAGS = ""                     # e.g. "--no-amp" if mixed precision errors in the quick test
+
+print("torch", torch.__version__, "| cuda available:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("GPU:", torch.cuda.get_device_name(0))
+else:
+    print("No GPU. Settings > Accelerator > GPU T4 x2. On CPU this would take days.")
+
+try:
+    socket.create_connection(("download.pytorch.org", 443), timeout=10).close()
+    print("internet: ok")
+except OSError:
+    print("internet: NOT reachable. Settings > Internet > On, then re-run this cell.")"""
+
+QUICK_GEN_MD = """\
+## Quick test on the GPU (a few minutes)
+
+Trains one tiny run with FaceSwap held out (8 videos per split and label), scores it on degraded frames, and builds the report from it. The numbers mean nothing; this checks that training, the degradations and the report all run on the GPU. If it fails with a CUDA or mixed-precision error, set `EXTRA_FLAGS = "--no-amp"` in the settings cell, re-run that cell, then this one."""
+
+QUICK_GEN_CODE = """\
+run("-m", "dfv2.run_ablation", "--data-dir", DATA_DIR, "--out-dir", "smoke", "--variants", "freq", "--seeds", "0",
+    "--epochs", "1", "--max-videos", "8", "--holdouts", "FaceSwap", "--robustness", "--split", SPLIT,
+    *EXTRA_FLAGS.split())
+run("-m", "dfv2.generalization", "--runs-dir", "smoke", "--n-boot", "50")"""
+
+EXPERIMENT_GEN_CODE = """\
+run("-m", "dfv2.run_ablation", "--data-dir", DATA_DIR, "--out-dir", OUT_DIR,
+    "--variants", *VARIANTS, "--seeds", *[str(s) for s in SEEDS], "--holdouts", *HOLDOUTS, "--robustness",
+    "--epochs", str(EPOCHS), "--split", SPLIT, *EXTRA_FLAGS.split())"""
+
+REPORT_GEN_MD = """\
+## The report
+
+Reads the saved predictions and writes `generalization.md`, `results.json` and two figures into `<OUT_DIR>/generalization/`. No GPU needed; a few minutes."""
+
+REPORT_GEN_CODE = """\
+run("-m", "dfv2.generalization", "--runs-dir", OUT_DIR)
+
+from IPython.display import Image, Markdown, display
+report_dir = os.path.join(OUT_DIR, "generalization")
+display(Markdown(open(os.path.join(report_dir, "generalization.md")).read()))
+for name in ["seen_vs_unseen.png", "robustness.png"]:
+    if os.path.exists(os.path.join(report_dir, name)):
+        display(Image(filename=os.path.join(report_dir, name)))"""
+
+HOW_TO_READ_GEN = """\
+## How to read it
+
+1. Start with **What the data supports**. Each line is a difference between a variant and the baseline, with a 95% interval; "not resolved" means the test set cannot separate the effect from zero. For the generalization gap, a *smaller* gap is better, so a negative difference counts as a gain.
+2. **Seen and unseen manipulations** shows where each model loses the most. NeuralTextures was the hardest type in the first study, so expect it to dominate the picture.
+3. **Robustness** shows how fast detection falls as frames are compressed, blurred or shrunk, and whether the FFT branch falls faster or slower than the baseline.
+4. Read the **caveats** before quoting any number. In particular, two seeds give only a rough idea of training noise, and the report makes many comparisons.
+
+The honest outcomes are all reportable: the FFT branch helps generalization, hurts it, or makes no resolvable difference."""
+
+
+def experiment_gen_md() -> str:
+    return ("## The experiment\n\n"
+            "`len(VARIANTS)` variants x the folds in `HOLDOUTS` x the seeds in `SEEDS`: with the defaults, 2 x 5 x 2 = 20 runs. "
+            "Each run trains for `EPOCHS` epochs on a fresh balanced real/fake subset every epoch and keeps the epoch with the "
+            "best validation AUC, which never includes the held-out type. It then scores the test frames four more times under the "
+            "degradations. Training took about 13 minutes per run in the first study; the degraded passes should add a couple of "
+            "minutes, which is an estimate. So 20 runs could take roughly five hours.\n\n"
+            "To look before committing, set `HOLDOUTS = [\"NeuralTextures\"]` and `SEEDS = [0]` (two runs), read the report, then "
+            "widen the settings and run this cell again: finished runs are skipped. A Kaggle notebook session lasts at most 12 hours. "
+            "To run everything unattended, use **Save Version > Save & Run All (Commit)**. That version keeps everything under "
+            "`/kaggle/working`, including `runs_generalization/`.")
+
+
 def experiment_md(target: str) -> str:
     if target == "colab":
         tail = ("Keep the tab open, or the session may disconnect. If it does, run the cells again: "
@@ -340,6 +470,16 @@ def colab_cells() -> list[dict]:
             + run_cells("colab"))
 
 
+def generalization_cells() -> list[dict]:
+    return ([md(TITLE_GEN), md(IDEA_GEN), md(SETTINGS_KAGGLE_MD), code(SETTINGS_GEN_CODE), md(MODULES_MD)]
+            + module_cells()
+            + [md(DATASET_KAGGLE_MD), code(DATASET_KAGGLE_CODE),
+               md(CHECK_SPLIT_MD), code(CHECK_SPLIT_CODE),
+               md(QUICK_GEN_MD), code(QUICK_GEN_CODE),
+               md(experiment_gen_md()), code(EXPERIMENT_GEN_CODE),
+               md(REPORT_GEN_MD), code(REPORT_GEN_CODE), md(HOW_TO_READ_GEN)])
+
+
 def notebook(cells: list[dict], colab_name: str | None = None) -> dict:
     metadata = {
         "accelerator": "GPU",
@@ -354,6 +494,7 @@ def notebook(cells: list[dict], colab_name: str | None = None) -> dict:
 TARGETS = {
     "kaggle": ("Deepfake_Detection_v2_kaggle.ipynb", lambda: notebook(kaggle_cells())),
     "colab": ("Deepfake_Detection_v2.ipynb", lambda: notebook(colab_cells(), "Deepfake_Detection_v2.ipynb")),
+    "generalization": ("Deepfake_Detection_generalization_kaggle.ipynb", lambda: notebook(generalization_cells())),
 }
 
 

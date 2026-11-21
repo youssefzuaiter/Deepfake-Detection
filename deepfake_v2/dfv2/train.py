@@ -10,7 +10,7 @@ import contextlib
 import json
 import random
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +23,7 @@ from . import metrics as M
 from .dataset import BalancedEpochSampler, FrameDataset
 from .manifest import load_manifest, split_frame
 from .models import build_model
+from .perturbations import CLEAN, parse as parse_perturbation
 from .splits import DEFAULT_DROP_TYPES, audit_identities
 
 
@@ -41,11 +42,14 @@ class TrainConfig:
     split: str = "clean"           # "clean" = identity-disjoint, "original" = Kaggle assignment
     split_seed: int = 0
     keep_dfd: bool = False         # clean split only: keep DeepFakeDetection (dropped by default)
+    holdout: str | None = None     # manipulation type left out of train and val, kept in test
+    perturbations: list[str] = field(default_factory=list)  # degradations to score the test frames under
     max_videos: int | None = None  # smoke runs only
 
     @property
     def tag(self) -> str:
-        return f"{self.variant}_seed{self.seed}"
+        hold = f"_hold-{self.holdout}" if self.holdout else ""
+        return f"{self.variant}{hold}_seed{self.seed}"
 
 
 def set_seed(seed: int) -> None:
@@ -101,13 +105,16 @@ def run(cfg: TrainConfig, data_dir: str | Path, out_dir: str | Path) -> dict:
     for sub in ("preds", "history", "weights"):
         (out / sub).mkdir(parents=True, exist_ok=True)
 
+    for name in cfg.perturbations:
+        parse_perturbation(name)  # fail before training, not after hours of it
+
     device = pick_device(cfg.device)
     use_amp = cfg.amp and device.type == "cuda"
     set_seed(cfg.seed)
 
     df = load_manifest(
         data_dir, max_videos=cfg.max_videos, split=cfg.split, split_seed=cfg.split_seed,
-        drop_types=() if cfg.keep_dfd else DEFAULT_DROP_TYPES)
+        drop_types=() if cfg.keep_dfd else DEFAULT_DROP_TYPES, holdout=cfg.holdout)
     audit = audit_identities(df)  # recorded with the run, so the report can state what was checked
     train_df, val_df, test_df = (split_frame(df, s) for s in ("train", "val", "test"))
     pin = device.type == "cuda"
@@ -117,9 +124,9 @@ def run(cfg: TrainConfig, data_dir: str | Path, out_dir: str | Path) -> dict:
         num_workers=cfg.num_workers, pin_memory=pin, persistent_workers=cfg.num_workers > 0,
     )
 
-    def eval_loader(frame: pd.DataFrame) -> DataLoader:
-        return DataLoader(FrameDataset(frame, train=False), batch_size=128, shuffle=False,
-                          num_workers=cfg.num_workers, pin_memory=pin)
+    def eval_loader(frame: pd.DataFrame, perturbation: str = CLEAN) -> DataLoader:
+        return DataLoader(FrameDataset(frame, train=False, perturbation=perturbation), batch_size=128,
+                          shuffle=False, num_workers=cfg.num_workers, pin_memory=pin)
 
     val_loader, test_loader = eval_loader(val_df), eval_loader(test_df)
 
@@ -180,6 +187,18 @@ def run(cfg: TrainConfig, data_dir: str | Path, out_dir: str | Path) -> dict:
     preds = pd.concat([_prediction_rows(val_df, best["val_p"]), _prediction_rows(test_df, test_p)], ignore_index=True)
     preds.to_csv(out / "preds" / f"{cfg.tag}.csv", index=False)
     torch.save(best["state"], out / "weights" / f"{cfg.tag}.pt")
+
+    # The same best model scores degraded copies of the same test frames. Nothing is trained on them.
+    if cfg.perturbations:
+        degraded = []
+        for name in cfg.perturbations:
+            p, _ = predict_probs(model, eval_loader(test_df, name), device, use_amp)
+            rows = test_df[["filename", "video", "fake_type", "label"]].copy()
+            rows["perturbation"] = name
+            rows["p_fake"] = p
+            degraded.append(rows)
+        (out / "robust").mkdir(parents=True, exist_ok=True)
+        pd.concat(degraded, ignore_index=True).to_csv(out / "robust" / f"{cfg.tag}.csv", index=False)
 
     y_test = test_df["label"].to_numpy()
     summary = {

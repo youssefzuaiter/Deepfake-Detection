@@ -276,6 +276,8 @@ def plot_learning_curves(runs_dir: Path, path: Path) -> list[dict]:
     histories = []
     for f in sorted((runs_dir / "history").glob("*.json")):
         meta = json.loads(f.read_text())
+        if meta["config"].get("holdout"):
+            continue  # leave-one-out runs belong to the generalization report, not to this one
         histories.append({"variant": meta["config"]["variant"], "seed": meta["config"]["seed"],
                           "history": meta["history"], "seconds": meta.get("seconds"),
                           "best_epoch": meta["summary"]["best_epoch"],

@@ -18,3 +18,4 @@ runs/
 smoke/
 kaggle_output/
 .pytest_cache/
+runs_generalization/

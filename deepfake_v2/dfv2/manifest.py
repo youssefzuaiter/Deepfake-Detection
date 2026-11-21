@@ -14,6 +14,8 @@ from .splits import DEFAULT_DROP_TYPES, clean_split
 
 FRAME_SUFFIX = re.compile(r"_f\d+$")
 SPLITS = ("train", "val", "test")
+# The manipulation types used for leave-one-out folds. DeepFakeDetection is excluded from the clean split.
+MANIPULATIONS = ("Deepfakes", "Face2Face", "FaceShifter", "FaceSwap", "NeuralTextures")
 
 
 def video_key(fake_type: str, filename: str) -> str:
@@ -77,6 +79,19 @@ def subsample_videos(df: pd.DataFrame, max_videos: int, seed: int = 0) -> pd.Dat
     return df[df["video"].isin(set(keep))].reset_index(drop=True)
 
 
+def hold_out_type(df: pd.DataFrame, fake_type: str) -> pd.DataFrame:
+    """Remove one manipulation type from train and val, so the model never sees it before it is tested on it.
+
+    The type stays in the test split. Validation loses it too: choosing the best epoch on a split that
+    contains the held-out type would let that type influence model selection.
+    """
+    present = sorted(set(df["fake_type"]) - {"Real"})
+    if fake_type == "Real" or fake_type not in present:
+        raise ValueError(f"cannot hold out {fake_type!r}: it must be a manipulation type in the data {present}")
+    drop = (df["fake_type"] == fake_type) & df["split"].isin(["train", "val"])
+    return df[~drop].reset_index(drop=True)
+
+
 def load_manifest(
     data_dir: str | Path,
     max_videos: int | None = None,
@@ -84,12 +99,16 @@ def load_manifest(
     split: str = "original",
     split_seed: int = 0,
     drop_types: tuple[str, ...] = DEFAULT_DROP_TYPES,
+    holdout: str | None = None,
 ) -> pd.DataFrame:
     """Return one row per frame: filename, split, fake_type, label (0 real, 1 fake), video, path.
 
     `split="original"` keeps the Kaggle assignment. `split="clean"` reassigns frames so that no
     identity appears in two splits (see splits.py); `drop_types` are removed in that case. Image
     paths always point at the original folders, so no file has to move.
+
+    `holdout` names a manipulation type to leave out of train and val (it stays in test), for
+    leave-one-manipulation-out experiments.
 
     `max_videos` keeps a small subset of videos per (split, label). It exists for
     quick smoke runs, not for real experiments.
@@ -111,6 +130,8 @@ def load_manifest(
     df = df[["filename", "split", "fake_type", "label", "video", "path"]]
     if split == "clean":
         df = clean_split(df, seed=split_seed, drop_types=drop_types)
+    if holdout is not None:
+        df = hold_out_type(df, holdout)
     if max_videos is not None:
         df = subsample_videos(df, max_videos, seed)
     return df

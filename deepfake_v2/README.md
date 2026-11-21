@@ -26,11 +26,14 @@ dfv2/splits.py        identity-disjoint re-split and the leakage audit
 dfv2/make_split.py    prints the audit of the original split next to the clean one
 dfv2/models.py        one model class for all four variants; FFT matches the original code exactly
 dfv2/dataset.py       torch dataset and the original augmentations
-dfv2/train.py         one (variant, seed) run -> predictions CSV, history JSON, weights
-dfv2/run_ablation.py  loops variants x seeds, skips runs that already finished
+dfv2/perturbations.py JPEG, blur and downscale degradations for test frames
+dfv2/train.py         one (variant, seed[, held-out type]) run -> predictions CSV, history JSON, weights
+dfv2/run_ablation.py  loops variants x seeds x folds, skips runs that already finished
 dfv2/report.py        predictions -> report.md, results.json, figures (no torch needed)
-tests/                pytest suite (metrics checked against scikit-learn, report checked on synthetic data)
-build_notebook.py     builds the Kaggle and Colab notebooks from dfv2/ so they never drift apart
+dfv2/generalization.py  hold-out runs -> unseen/seen AUC, robustness, paired comparisons (no torch needed)
+tests/                pytest suite (metrics checked against scikit-learn, reports checked on synthetic data)
+docs/generalization_study.md  the design of the generalization study
+build_notebook.py     builds the Kaggle, Colab and generalization notebooks from dfv2/ so they never drift apart
 ```
 
 ## Run on Kaggle (recommended) or Colab
@@ -39,10 +42,10 @@ build_notebook.py     builds the Kaggle and Colab notebooks from dfv2/ so they n
 File > Import notebook), set Accelerator to GPU T4 x2 and Internet to On, add the FaceForensics++ C23 dataset with
 **+ Add Input**, and run the cells top to bottom. The dataset is read in place: no download and no keys.
 
-**On Colab:** run `python build_notebook.py`, which writes `Deepfake_Detection_v2.ipynb` (Colab) and
-`Deepfake_Detection_v2_kaggle.ipynb` (Kaggle) next to this folder. Upload the Colab one, pick a GPU runtime, add
-`KAGGLE_USERNAME` and `KAGGLE_KEY` as Colab Secrets, and run the cells top to bottom. The Colab path has not been run
-end to end; the Kaggle notebook has.
+**On Colab:** run `python build_notebook.py`, which writes `Deepfake_Detection_v2.ipynb` (Colab),
+`Deepfake_Detection_v2_kaggle.ipynb` and `Deepfake_Detection_generalization_kaggle.ipynb` next to this folder. Upload the
+Colab one, pick a GPU runtime, add `KAGGLE_USERNAME` and `KAGGLE_KEY` as Colab Secrets, and run the cells top to bottom.
+The Colab path has not been run end to end; the Kaggle notebook has.
 
 Each notebook contains the whole package (each module is a `%%writefile` cell), the split check, a quick GPU test, the
 experiment and the report. They are generated from this folder, so after changing any file in `dfv2/`, rebuild them
@@ -76,6 +79,23 @@ Measured on a Kaggle T4 (the full run in `../Deepfake_Detection_v2_full_run.ipyn
 once the dataset is cached, and about 4 hours for all 12 runs. The first run was slower (about 1 h 25 min to 1 h 50 min
 in two sessions), probably the one-time read of the dataset. The CUDA mixed-precision path ran there without errors. If
 it errors elsewhere, add `--no-amp`.
+
+## Generalization study
+
+The matched ablation found no robust in-domain gain from the gate or the FFT branch. The generalization study asks
+a harder question: what happens on a manipulation the model never saw, and on degraded frames? The design is in
+[`docs/generalization_study.md`](docs/generalization_study.md), and the runnable notebook is
+`Deepfake_Detection_generalization_kaggle.ipynb` (build it with `python build_notebook.py --target generalization`).
+
+```bash
+python -m dfv2.run_ablation --data-dir <dataset> --out-dir runs_generalization \
+        --variants base freq --seeds 0 1 --holdouts all --robustness
+python -m dfv2.generalization --runs-dir runs_generalization
+```
+
+`--holdouts all` trains one model per manipulation type with that type removed from train and val; `--robustness`
+scores the test frames again under JPEG quality 70 and 40, blur and downscaling. With the defaults that is 20 runs,
+roughly five hours on a Kaggle T4 (an estimate: the degraded passes have not been timed). Not run yet.
 
 ## Run locally
 
@@ -132,4 +152,4 @@ The baseline uses the same dense head as the others, so it is not the original s
 
 - **One split draw.** Results come from a single identity-disjoint split (seed 0). Repeating with `--split-seed 1` and `2` would show how much the split itself matters.
 - **The frequency branch design.** It is kept as in the original so the ablation tests that design. It pools away frequency positions and reads already-resized JPEG crops.
-- **Only FaceForensics++ C23.** No cross-dataset test, no compression-robustness test.
+- **Only FaceForensics++ C23.** No cross-dataset test. Unseen manipulations and synthetic degradations are covered by the generalization study above, once it has been run.

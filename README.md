@@ -10,7 +10,7 @@ A binary real/fake classifier for face images, trained on FaceForensics++ C23. T
 
 **Version 2 did not get the expected results.** The expected result was a hybrid model that clearly beats a plain MobileNetV2 baseline. Under a controlled comparison (the same training for every model, an identity-disjoint split, three training seeds), neither the gate nor the FFT branch gave a robust improvement. The gains that version 1 reported (+2.44 points for attention and +4.25 for the hybrid, one run each) came from models trained with different budgets, and they did not hold up.
 
-**Version 3 is planned.** It has not started. Directions under consideration, not commitments: train longer (9 of the 12 version 2 runs were still improving at epoch 5), redesign the frequency branch so it keeps frequency position, try a stronger backbone, and test on another dataset (Celeb-DF or DFDC).
+**Version 3 is a generalization study. It is built and tested, but it has not been run, so there are no results yet.** The version 2 models were only tested on the manipulations they were trained on. Version 3 asks what happens on a manipulation a model has never seen, and on compressed, blurred or shrunk frames, and whether the FFT branch helps there. See "Version 3" below. Other directions still under consideration, not commitments: train longer (9 of the 12 version 2 runs were still improving at epoch 5), redesign the frequency branch so it keeps frequency position, try a stronger backbone, and test on another dataset (Celeb-DF or DFDC).
 
 ## The notebooks
 
@@ -19,8 +19,8 @@ A binary real/fake classifier for face images, trained on FaceForensics++ C23. T
 | 1 | `DEEPLEARNING.ipynb` | Baseline and attention models, one run each, on the Kaggle split | Text corrected. The numbers were always real, but the explanations were never tested, and the attention gain does not hold on the balanced test subset |
 | 1 | `Hybrid Deepfake.ipynb` | Hybrid model, one run | Text corrected. It measures 92.84% test accuracy; the 93.34% that its text used to state was typed by hand |
 | 2 | `Deepfake_Detection_v2_kaggle.ipynb` | Runnable matched study: four variants × three seeds on an identity-disjoint split, plus a report | Ran end to end on a Kaggle T4 |
-| 2 | `Deepfake_Detection_v2_full_run.ipynb` | The same notebook with the outputs of the full run and its report | Result: no robust gain from either component |
-| 3 | not yet | Planned | |
+| 2 | `Deepfake_Detection_v2_full_run.ipynb` | The same notebook with the outputs of the full run and its report | Result: no robust gain from either component. Its embedded code is the version 2 code as it was for that run; the runnable notebook has since been extended for version 3 |
+| 3 | `Deepfake_Detection_generalization_kaggle.ipynb` | Runnable generalization study: leave-one-manipulation-out folds and degraded test frames | Built and tested (108 automated tests, plus a CPU smoke run on real images). Not run on a GPU yet, so there are no results |
 
 The version 1 notebooks were corrected after version 2. Their text no longer makes the unsupported claims, hand-typed numbers are replaced by measured ones, and each notebook opens with a note listing what changed. Their code and saved outputs are otherwise untouched, except for the cells that showed the old numbers. The original wording is in the git history.
 
@@ -84,6 +84,21 @@ The full report is in [`results/v2/report.md`](results/v2/report.md), with the f
 ### Running version 2
 
 Use `Deepfake_Detection_v2_kaggle.ipynb`: import it into a Kaggle notebook, set Accelerator to GPU T4 and Internet to On, add the FaceForensics++ C23 dataset with **+ Add Input**, and run the cells top to bottom. It reads the dataset in place, so no download or key is needed. Start with `SEEDS = [0]` (four runs), then use `[0, 1, 2]`. Details, the package layout and the tests are in [`deepfake_v2/README.md`](deepfake_v2/README.md).
+
+## Version 3: generalization study
+
+**Status: built and tested, not run yet. There are no results.**
+
+The version 2 study measured detectors on the manipulation types they were trained on. Version 3 asks what happens when a model meets a manipulation it has never seen, and whether the FFT branch helps there. The frequency idea is usually motivated by robustness and generalization, so this is where it should show up if it helps at all.
+
+- **Unseen manipulations.** One fold per manipulation type (Deepfakes, Face2Face, FaceShifter, FaceSwap, NeuralTextures). The held-out type is removed from training and from validation, and appears only at test time. *Unseen AUC* compares it with the real test frames; *seen AUC* does the same for the other four types. The gap between them is what a model loses on a new method.
+- **Degraded frames.** Each trained model also scores the test frames after JPEG re-encoding (quality 70 and 40), Gaussian blur and a 2x downscale. Nothing is trained on them.
+- **Variants.** The baseline against the baseline plus the FFT branch, two seeds each: 20 runs. That is roughly five hours on a Kaggle T4, an estimate: the version 2 runs took about 13 minutes each, and the degraded passes have not been timed.
+- **Report.** Paired comparisons with 95% intervals over test videos, a note on how many comparisons are made and how likely a spurious "gain" is, and robustness curves.
+
+It cannot show anything about another dataset, and "unseen" means one manipulation method on the same kind of source footage, not new people or cameras. The design, the decisions and their reasons are in [`deepfake_v2/docs/generalization_study.md`](deepfake_v2/docs/generalization_study.md).
+
+To run it, import `Deepfake_Detection_generalization_kaggle.ipynb` into a Kaggle notebook (Accelerator GPU T4, Internet on, the dataset added with **+ Add Input**) and run the cells top to bottom. For a first look, set `HOLDOUTS = ["NeuralTextures"]` and `SEEDS = [0]` in the settings cell: two runs.
 
 ## Version 1: single-run results
 
@@ -229,7 +244,8 @@ Both models use Adam (lr 1e-4), plain cross-entropy, batch size 32, and 3 epochs
 - `Hybrid Deepfake.ipynb`: version 1 (text corrected), the hybrid model pipeline (data, balanced sampling, FFT transform, model, training, evaluation, plots, weight saving).
 - `Deepfake_Detection_v2_kaggle.ipynb`: version 2, the runnable matched study for Kaggle.
 - `Deepfake_Detection_v2_full_run.ipynb`: version 2, the same notebook with the outputs of the full run (12 runs) and its report.
-- `deepfake_v2/`: the version 2 package (`dfv2/`), its tests, its README, and `build_notebook.py`, which generates the version 2 notebooks from the package.
+- `Deepfake_Detection_generalization_kaggle.ipynb`: version 3, the runnable generalization study for Kaggle (not run yet).
+- `deepfake_v2/`: the package (`dfv2/`) used by versions 2 and 3, its tests, its README, the generalization study design (`docs/`), and `build_notebook.py`, which generates the notebooks from the package.
 - `results/v2/`: the version 2 report and figures.
 - `docs/learning_curves_hybrid.png`: training and validation curves from the version 1 hybrid run.
 - `.gitignore`: keeps the dataset, zip archives, run outputs and model weights out of the repository.
@@ -266,6 +282,7 @@ An earlier version of `Hybrid Deepfake.ipynb` contained a hard-coded Kaggle key.
 ## Limitations
 
 - **Version 2 did not reach the expected results.** No robust gain from the gate or the FFT branch.
+- **Version 3 has not been run.** The generalization study is built and tested, so what happens on unseen manipulations and degraded frames is still an open question.
 - **One dataset.** Training and testing use FaceForensics++ C23 only. Generalization to DFDC or Celeb-DF is untested and is likely to be much lower.
 - **Version 1 is confounded and its split leaks.** See the version 1 sections.
 - **DeepFakeDetection is excluded** from version 2, so version 2 results say nothing about it.

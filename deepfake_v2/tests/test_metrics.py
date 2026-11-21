@@ -177,3 +177,18 @@ def test_percentile_ci_handles_multiple_columns():
     lo, hi = M.percentile_ci(samples, alpha=0.10)
     assert lo == pytest.approx([5, 10])
     assert hi == pytest.approx([95, 190])
+
+
+# --- weighted AUC with a one-off sort ----------------------------------------
+
+def test_auc_evaluator_matches_auc_roc_with_ties_and_weights():
+    y, s = toy(round_to=1)
+    w = np.random.default_rng(2).integers(0, 4, len(y)).astype(float)
+    ev = M.AucEvaluator(y, s)
+    assert ev() == pytest.approx(M.auc_roc(y, s))
+    assert ev(w) == pytest.approx(M.auc_roc(y, s, w))
+
+
+def test_auc_evaluator_returns_nan_when_the_weights_leave_one_class():
+    ev = M.AucEvaluator([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9])
+    assert np.isnan(ev(np.array([1.0, 1.0, 0.0, 0.0])))

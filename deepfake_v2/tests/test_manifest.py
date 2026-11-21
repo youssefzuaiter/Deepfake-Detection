@@ -135,3 +135,44 @@ def test_find_data_dir_skips_decoys_and_finds_the_full_layout(tmp_path):
 def test_find_data_dir_says_what_to_do_when_missing(tmp_path):
     with pytest.raises(FileNotFoundError, match="Add Input"):
         mf.find_data_dir(tmp_path)
+
+
+# --- holding out one manipulation type ---------------------------------------
+
+def two_type_rows():
+    rows = []
+    for split in ("train", "val", "test"):
+        for vid in range(3):
+            for f in range(2):
+                rows.append((f"{split}{vid}_f{f}.jpg", vid, f, "REAL", "Real", split))
+                rows.append((f"{split}{vid}_9_f{f}.jpg", vid, f, "FAKE", "Deepfakes", split))
+                rows.append((f"{split}{vid}_8_f{f}.jpg", vid, f, "FAKE", "Face2Face", split))
+    return rows
+
+
+def test_hold_out_removes_the_type_from_train_and_val_but_not_test(tmp_path):
+    write_manifest(tmp_path, two_type_rows())
+    df = mf.load_manifest(tmp_path, holdout="Face2Face")
+    seen_in = df[df["fake_type"] == "Face2Face"]["split"].unique().tolist()
+    assert seen_in == ["test"]
+    assert set(df[df["split"] == "train"]["fake_type"]) == {"Real", "Deepfakes"}
+    assert set(df[df["split"] == "test"]["fake_type"]) == {"Real", "Deepfakes", "Face2Face"}
+
+
+def test_hold_out_leaves_the_other_rows_untouched(tmp_path):
+    write_manifest(tmp_path, two_type_rows())
+    full = mf.load_manifest(tmp_path)
+    held = mf.load_manifest(tmp_path, holdout="Face2Face")
+    assert len(held) == len(full) - ((full["fake_type"] == "Face2Face") & full["split"].isin(["train", "val"])).sum()
+    assert (held["fake_type"] == "Real").sum() == (full["fake_type"] == "Real").sum()
+
+
+@pytest.mark.parametrize("bad", ["Real", "NotAType"])
+def test_hold_out_rejects_real_and_unknown_types(tmp_path, bad):
+    write_manifest(tmp_path, two_type_rows())
+    with pytest.raises(ValueError):
+        mf.load_manifest(tmp_path, holdout=bad)
+
+
+def test_manipulations_lists_the_five_types_used_for_folds():
+    assert mf.MANIPULATIONS == ("Deepfakes", "Face2Face", "FaceShifter", "FaceSwap", "NeuralTextures")
